@@ -1,0 +1,11 @@
+streamlit
+opencv-python
+deepface
+streamlit-webrtc
+av
+plotly
+pandas
+tensorflow
+tf-keras
+numpy
+streamlit-autorefresh
