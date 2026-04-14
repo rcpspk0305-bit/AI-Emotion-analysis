@@ -13,7 +13,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from deepface import DeepFace
-from streamlit_webrtc import webrtc_streamer, WebRtcMode
+# FIX #2: Import VideoProcessorBase for proper lifecycle management
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoProcessorBase
 from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
@@ -38,46 +39,44 @@ def get_db_connection():
     return sqlite3.connect(DB_FILE, check_same_thread=False)
 
 def init_db():
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT UNIQUE,
-            video_filepath TEXT,
-            dominant_emotions TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+    # FIX #4: Use context manager so connection closes even on exception
+    with get_db_connection() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT UNIQUE,
+                video_filepath TEXT,
+                dominant_emotions TEXT
+            )
+        """)
+        conn.commit()
 
 init_db()
 
 def create_session_in_db(timestamp, filepath):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute(
-        "INSERT OR IGNORE INTO sessions (timestamp, video_filepath, dominant_emotions) VALUES (?, ?, ?)",
-        (timestamp, filepath, "Recording...")
-    )
-    conn.commit()
-    conn.close()
+    # FIX #4: Use context manager
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO sessions (timestamp, video_filepath, dominant_emotions) VALUES (?, ?, ?)",
+            (timestamp, filepath, "Recording...")
+        )
+        conn.commit()
 
 def update_session_in_db(timestamp, emotions_list):
-    conn = get_db_connection()
-    c = conn.cursor()
-    summary = str(Counter(emotions_list).most_common(3)) if emotions_list else "No emotions detected"
-    c.execute(
-        "UPDATE sessions SET dominant_emotions=? WHERE timestamp=?",
-        (summary, timestamp)
-    )
-    conn.commit()
-    conn.close()
+    # FIX #4: Use context manager
+    with get_db_connection() as conn:
+        summary = str(Counter(emotions_list).most_common(3)) if emotions_list else "No emotions detected"
+        conn.execute(
+            "UPDATE sessions SET dominant_emotions=? WHERE timestamp=?",
+            (summary, timestamp)
+        )
+        conn.commit()
 
 # ==========================================
 # 3. WEBRTC VIDEO PROCESSOR
 # ==========================================
-class EmotionVideoProcessor:
+# FIX #2: Inherit from VideoProcessorBase for proper streamlit-webrtc lifecycle
+class EmotionVideoProcessor(VideoProcessorBase):
     def __init__(self):
         self.frame_count = 0
         self.emotions_detected = []
@@ -120,7 +119,6 @@ class EmotionVideoProcessor:
                     else:
                         print("Recording started:", self.video_filepath)
 
-                        # Save DB row immediately for online/public reliability
                         if not self.db_saved_once:
                             create_session_in_db(self.timestamp, self.video_filepath)
                             self.db_saved_once = True
@@ -153,7 +151,7 @@ class EmotionVideoProcessor:
             # ------------------------------------------
             if self.frame_count % 2 == 0:
                 try:
-                    frame_to_save = cv2.flip(raw_img.copy(), 1)  # save mirrored like preview
+                    frame_to_save = cv2.flip(raw_img.copy(), 1)
                     if not self.recording_queue.full():
                         self.recording_queue.put_nowait(frame_to_save)
                 except Exception as e:
@@ -202,7 +200,6 @@ class EmotionVideoProcessor:
                         top_emotion = max(probabilities, key=probabilities.get)
                         top_score = probabilities[top_emotion]
 
-                        # Ignore weak/confused predictions
                         if top_score >= 45:
                             self.recent_predictions.append(top_emotion)
                             smoothed_emotion = Counter(self.recent_predictions).most_common(1)[0][0]
@@ -308,33 +305,32 @@ with st.sidebar:
         st.success("Authenticated")
         st.markdown("### 📼 Session Records")
 
-        conn = get_db_connection()
-        try:
-            df_db = pd.read_sql_query("SELECT * FROM sessions ORDER BY id DESC", conn)
+        # FIX #4: Use context manager for admin DB reads too
+        with get_db_connection() as conn:
+            try:
+                df_db = pd.read_sql_query("SELECT * FROM sessions ORDER BY id DESC", conn)
 
-            if not df_db.empty:
-                session_options = df_db["timestamp"].tolist()
-                selected_session = st.selectbox("Select Session to Play:", session_options)
+                if not df_db.empty:
+                    session_options = df_db["timestamp"].tolist()
+                    selected_session = st.selectbox("Select Session to Play:", session_options)
 
-                if selected_session:
-                    session_data = df_db[df_db["timestamp"] == selected_session].iloc[0]
-                    video_path = session_data["video_filepath"]
+                    if selected_session:
+                        session_data = df_db[df_db["timestamp"] == selected_session].iloc[0]
+                        video_path = session_data["video_filepath"]
 
-                    st.write("**Detected Emotions:**")
-                    st.code(session_data["dominant_emotions"])
+                        st.write("**Detected Emotions:**")
+                        st.code(session_data["dominant_emotions"])
 
-                    if os.path.exists(video_path):
-                        with open(video_path, "rb") as video_file:
-                            st.video(video_file.read())
-                    else:
-                        st.error("Video file not found on server.")
-            else:
-                st.info("No sessions recorded yet.")
+                        if os.path.exists(video_path):
+                            with open(video_path, "rb") as video_file:
+                                st.video(video_file.read())
+                        else:
+                            st.error("Video file not found on server.")
+                else:
+                    st.info("No sessions recorded yet.")
 
-        except Exception as e:
-            st.error(f"Database Error: {e}")
-        finally:
-            conn.close()
+            except Exception as e:
+                st.error(f"Database Error: {e}")
 
     elif entered_password != "":
         st.error("Incorrect Password.")
@@ -345,8 +341,9 @@ with st.sidebar:
 st.title("🧠 Live Emotional Analysis Dashboard")
 st.caption("Live facial expression estimation and real-time analytics")
 
-# Auto-refresh every 2 seconds for graph/metric updates
-st_autorefresh(interval=2000, key="emotion-refresh")
+# FIX #3: Pass limit=None explicitly to avoid accidental refresh storm
+# and key collision with webrtc re-renders
+st_autorefresh(interval=2000, limit=None, key="emotion-refresh")
 
 col_video, col_graphs = st.columns([1.2, 1])
 
@@ -444,7 +441,8 @@ if webrtc_ctx and webrtc_ctx.state.playing and webrtc_ctx.video_processor:
                 hovermode="x unified"
             )
 
-            chart_placeholder.plotly_chart(fig, width="stretch")
+            # FIX #1: use_container_width=True is the correct Streamlit parameter
+            chart_placeholder.plotly_chart(fig, use_container_width=True)
 
         if got_new_data:
             debug_placeholder.success(f"Live detections: {len(st.session_state.history)}")

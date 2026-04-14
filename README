@@ -1,0 +1,165 @@
+    # 🧠 AI Emotion Analytics Dashboard
+
+    A real-time facial emotion detection and analytics dashboard built with **Streamlit**, **DeepFace**, and **WebRTC**. Streams live video from your webcam, detects facial emotions frame-by-frame, plots confidence telemetry, and records sessions to disk with a password-protected admin panel.
+
+    ---
+
+    ## ✨ Features
+
+    - 🎥 **Live WebRTC video stream** — low-latency browser-based camera access
+    - 😊 **Real-time emotion detection** — powered by DeepFace (OpenCV backend)
+    - 📊 **Confidence telemetry chart** — live Plotly graph showing all 7 emotion probabilities over time
+    - 🎞️ **Session recording** — saves `.avi` video files to `secure_recordings/`
+    - 🗄️ **SQLite session log** — stores timestamp, file path, and top detected emotions per session
+    - 🔐 **Admin panel** — password-protected sidebar to review and replay past sessions
+    - 🧹 **Prediction smoothing** — rolling window of 5 frames prevents jitter; weak predictions (< 45% confidence) are ignored
+
+    ---
+
+    ## 📋 Requirements
+
+    ### System Dependencies
+
+    ```bash
+    # Ubuntu / Debian
+    sudo apt-get install -y libgl1-mesa-glx libglib2.0-0
+    ```
+
+    ### Python Dependencies
+
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+    **`requirements.txt`**
+
+    ```
+    streamlit>=1.32.0
+    streamlit-webrtc>=0.47.0
+    streamlit-autorefresh>=1.0.1
+    deepface>=0.0.93
+    opencv-python-headless>=4.9.0
+    av>=11.0.0
+    numpy>=1.26.0
+    pandas>=2.2.0
+    plotly>=5.20.0
+    ```
+
+    > **Note:** DeepFace will automatically download model weights (RetinaFace, VGG-Face, etc.) on first run. Ensure internet access on first launch.
+
+    ---
+
+    ## 🚀 Getting Started
+
+    ### 1. Clone the repository
+
+    ```bash
+    git clone https://github.com/your-username/ai-emotion-analytics.git
+    cd ai-emotion-analytics
+    ```
+
+    ### 2. Install dependencies
+
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+    ### 3. Set the admin password (optional)
+
+    The default admin password is `admin123`. Override it via environment variable before running:
+
+    ```bash
+    export ADMIN_PASSWORD="your_secure_password"
+    ```
+
+    ### 4. Run the app
+
+    ```bash
+    streamlit run app.py
+    ```
+
+    Open your browser at `http://localhost:8501`.
+
+    ---
+
+    ## 🖥️ Usage
+
+    ### Live Emotion Detection
+    1. Click **Start** in the *Interactive Camera* panel to begin your webcam stream.
+    2. Your face will be detected and labeled with the dominant emotion in real time.
+    3. The *Real-Time Telemetry* panel shows a live confidence chart updating every 2 seconds.
+    4. Click **Stop** to end the stream — the session is saved automatically.
+
+    ### Admin Panel
+    1. Open the left sidebar.
+    2. Enter the admin password.
+    3. Select a past session from the dropdown to view its detected emotion summary and replay the recorded video.
+
+    ---
+
+    ## 🗂️ Project Structure
+
+    ```
+    .
+    ├── app.py                  # Main application
+    ├── requirements.txt        # Python dependencies
+    ├── emotion_sessions.db     # SQLite database (auto-created)
+    └── secure_recordings/      # Recorded session videos (auto-created)
+        └── session_YYYY-MM-DD_HH-MM-SS.avi
+    ```
+
+    ---
+
+    ## ⚙️ Configuration
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `ADMIN_PASSWORD` | `admin123` | Admin panel password (set via env var) |
+    | `DB_FILE` | `emotion_sessions.db` | SQLite database file path |
+    | `RECORDING_DIR` | `secure_recordings` | Directory for saved session videos |
+    | Emotion analysis interval | Every 45 frames | Controls CPU load vs. update frequency |
+    | Confidence threshold | 45% | Minimum score to register an emotion |
+    | Smoothing window | 5 frames | Rolling window for prediction stability |
+
+    ---
+
+    ## 🔒 Security Notes
+
+    - **Change the default password** — `admin123` is for development only. Always set `ADMIN_PASSWORD` via environment variable in production.
+    - **Recorded videos** are stored unencrypted in `secure_recordings/`. Restrict filesystem access as appropriate.
+    - The app uses a **public Google STUN server** (`stun.l.google.com:19302`) for WebRTC ICE negotiation. For a private deployment, replace this with your own TURN/STUN server.
+    - SQLite is suitable for single-user or low-traffic deployments. For multi-user production use, migrate to PostgreSQL or another concurrent-safe database.
+
+    ---
+
+    ## 🐛 Known Limitations
+
+    - **Single face only** — the analyzer uses `results[0]`, so only the first detected face per frame is tracked.
+    - **CPU-intensive** — DeepFace analysis runs on CPU by default. GPU acceleration requires CUDA and additional configuration.
+    - **Browser compatibility** — WebRTC requires HTTPS in production (works on `localhost` without it). Use a reverse proxy with SSL (e.g., Nginx + Let's Encrypt) for remote deployments.
+    - **`st_autorefresh`** causes a full Streamlit script re-run every 2 seconds. This is intentional for live graph updates but means any expensive operations outside of `st.cache_*` will re-execute.
+
+    ---
+
+    ## 🧰 Troubleshooting
+
+    **Camera not starting**
+    - Ensure your browser has camera permissions for the app's origin.
+    - Try a different browser (Chrome/Edge recommended for WebRTC).
+
+    **`VideoWriter failed to open`**
+    - Check that the `secure_recordings/` directory exists and is writable.
+    - On Linux, ensure `libgl1-mesa-glx` is installed.
+
+    **DeepFace model download fails**
+    - Check your internet connection on first run.
+    - Models are cached in `~/.deepface/weights/` after the initial download.
+
+    **`AttributeError: 'NoneType' object has no attribute 'state'`**
+    - This can occur during hot-reload. Stop and restart the Streamlit server.
+
+    ---
+
+    ## 📄 License
+
+    MIT License. See [LICENSE](LICENSE) for details.
